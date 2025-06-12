@@ -56,6 +56,11 @@ RUN npx nx run-many --target=build --projects=react-ui
 # Aligning with official Dockerfile.
 RUN cd dist/packages/server/api && npm install --production --force
 
+# Rebuild bcrypt
+RUN echo "Rebuilding bcrypt in /app/code/backend/dist/packages/server/api..." && \
+    npm rebuild bcrypt --build-from-source && \
+    echo "bcrypt rebuild complete. Purging build tools."
+
 
 # Stage 2: Final Cloudron Stage
 FROM cloudron/base:4.2.0 AS final
@@ -73,66 +78,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # For Node.js, cloudron/base includes a recent LTS.
     # If specific Node 18.20.5 is strictly required and not provided by cloudron/base,
     # it would need to be installed here. For now, assume base Node is sufficient.
+    && apt-mark manual nginx gettext-base supervisor poppler-utils procps \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Add build tools, rebuild bcrypt, then remove build tools
-# This is done to ensure bcrypt is compiled against the final stage's Node.js version and system libraries.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3 build-essential g++ && \
-    # The bcrypt module is part of the server-api's dependencies.
-    # We need to run npm rebuild in the directory where its node_modules and package.json are located after being copied.
-    # This happens after the COPY --from=builder .../api/node_modules ... line.
-    # However, to ensure the command is placed correctly, we'll do it after copying all backend files,
-    # then cd into the correct directory.
-    # For now, this RUN block is placed after initial runtime deps. The actual rebuild will occur after files are copied.
-    # This is a placeholder for the logic, the actual rebuild will be done after COPY.
-    # The actual rebuild command will be added after the COPY statements for node_modules.
-    # For now, just installing tools. The rebuild will be a separate RUN command later.
-    echo "Build tools installed. bcrypt will be rebuilt after files are copied." && \
-    apt-get clean # Clean now, purge later after rebuild
-
-# Install isolated-vm globally (adjust if official method is different)
-# The official Dockerfile does `cd /usr/src && npm i isolated-vm@5.0.1`
-# This means it's not in the main app's node_modules.
-# We need to replicate its availability.
-RUN mkdir -p /usr/src/isolated-vm-install && \
-    cd /usr/src/isolated-vm-install && \
-    npm i isolated-vm@5.0.1 && \
-    # Make it findable by Node; this might need adjustment based on how AP requires it.
-    # A common pattern is to ensure /usr/src/isolated-vm-install/node_modules is in NODE_PATH or linked.
-    # For now, we assume AP's code knows how to find it if installed this way.
-    # Or, ensure it's installed in a way that the main app's require() can find it.
-    # The official Dockerfile installs it in /usr/src, which is unusual.
-    # Let's try to mimic that by placing its node_modules there.
-    mkdir -p /usr/src/node_modules && \
-    mv /usr/src/isolated-vm-install/node_modules/isolated-vm /usr/src/node_modules/isolated-vm && \
-    rm -rf /usr/src/isolated-vm-install
-
-# Create application and configuration directories
-RUN mkdir -p /app/code/backend /app/code/frontend /app/code/config /app/data /run /tmp
-
-# Copy ActivePieces specific assets (e.g., for isolated-vm sandboxing)
-# Path from official Dockerfile: packages/server/api/src/assets/default.cf
-COPY --from=builder /usr/src/app/packages/server/api/src/assets/default.cf /usr/local/etc/isolate/default.cf
-
-# Copy built artifacts from builder stage
-COPY --from=builder /usr/src/app/dist/packages/server/ /app/code/backend/dist/packages/server/
-COPY --from=builder /usr/src/app/dist/packages/engine/ /app/code/backend/dist/packages/engine/
-COPY --from=builder /usr/src/app/dist/packages/shared/ /app/code/backend/dist/packages/shared/
+# Install isolated-vm globally (adjust if official method is different) # The official Dockerfile does `cd /usr/src && npm i isolated-vm@5.0.1` # This means it's not in the main app's node_modules. # We need to replicate its availability. RUN mkdir -p /usr/src/isolated-vm-install && \ cd /usr/src/isolated-vm-install && \ npm i isolated-vm@5.0.1 && \ # Make it findable by Node; this might need adjustment based on how AP requires it. # A common pattern is to ensure /usr/src/isolated-vm-install/node_modules is in NODE_PATH or linked. # For now, we assume AP's code knows how to find it if installed this way. # Or, ensure it's installed in a way that the main app's require() can find it. # The official Dockerfile installs it in /usr/src, which is unusual. # Let's try to mimic that by placing its node_modules there. mkdir -p /usr/src/node_modules && \ mv /usr/src/isolated-vm-install/node_modules/isolated-vm /usr/src/node_modules/isolated-vm && \ rm -rf /usr/src/isolated-vm-install # Create application and configuration directories RUN mkdir -p /app/code/backend /app/code/frontend /app/code/config /app/data /run /tmp # Copy ActivePieces specific assets (e.g., for isolated-vm sandboxing) # Path from official Dockerfile: packages/server/api/src/assets/default.cf COPY --from=builder /usr/src/app/packages/server/api/src/assets/default.cf /usr/local/etc/isolate/default.cf # Copy built artifacts from builder stage COPY --from=builder /usr/src/app/dist/packages/server/ /app/code/backend/dist/packages/server/ COPY --from=builder /usr/src/app/dist/packages/engine/ /app/code/backend/dist/packages/engine/ COPY --from=builder /usr/src/app/dist/packages/shared/ /app/code/backend/dist/packages/shared/
 # Copy the node_modules for the backend server api that were installed with --production
-COPY --from=builder /usr/src/app/dist/packages/server/api/node_modules /app/code/backend/dist/packages/server/api/node_modules
+COPY --from=builder /usr/src/app/dist/packages/server/api /app/code/backend/dist/packages/server/api
 
-# Rebuild bcrypt now that node_modules are in place
-RUN echo "Rebuilding bcrypt in /app/code/backend/dist/packages/server/api..." && \
-    cd /app/code/backend/dist/packages/server/api && \
-    npm rebuild bcrypt --build-from-source && \
-    echo "bcrypt rebuild complete. Purging build tools." && \
-    apt-get purge -y --auto-remove python3 build-essential g++ && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /usr/src/app/dist/packages/react-ui/ /app/code/frontend/
+COPY --from=builder /usr/src/app/dist/packages/react-ui /app/code/frontend/
 COPY --from=builder /usr/src/app/LICENSE /app/code/LICENSE
 
 # Copy configuration templates and scripts (these will be created in the project root)
