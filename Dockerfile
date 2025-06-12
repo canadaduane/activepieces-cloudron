@@ -1,5 +1,6 @@
 # Stage 1: Builder Stage (based on official ActivePieces build environment)
-FROM node:18.20.5-bullseye-slim AS builder
+# Changed to 18.18.0 to match Cloudron base image Node version for bcrypt compatibility
+FROM node:18.18.0-bullseye-slim AS builder
 
 LABEL stage=builder
 
