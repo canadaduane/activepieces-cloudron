@@ -3,9 +3,15 @@
 ## 1. Objective
 Resolve the critical error: `Error: /app/code/backend/dist/packages/server/api/node_modules/bcrypt/lib/binding/napi-v3/bcrypt_lib.node: cannot open shared object file: No such file or directory`. This error causes the ActivePieces backend to crash and enter a restart loop.
 
-## 2. Chosen Solution
+## 2. Chosen Solution (Attempt 1 - Failed)
 Implement "Option A" as outlined in `docs/003-errors.md#6-activepieces---bcrypt_libnode-missing`:
 Align the Node.js version used in the `builder` stage of the `Dockerfile` with the Node.js version present in the `final` stage (runtime environment provided by `cloudron/base:4.2.0`).
+**Result:** This did not resolve the issue. The error persists.
+
+## 2.1 Chosen Solution (Attempt 2 - Current)
+Implement "Option C" as outlined in `docs/003-errors.md#6-activepieces---bcrypt_libnode-missing`:
+Rebuild `bcrypt` (and potentially other native modules) in the *final* stage of the `Dockerfile`. This ensures compilation against the exact runtime environment (Node.js version, OS, system libraries).
+Additionally, we will revert the builder stage Node.js version to the original `node:18.20.5-bullseye-slim` as the primary build environment, since changing it did not help and rebuilding in the final stage is a more targeted fix for runtime compatibility.
 
 ## 3. Identified Runtime Node.js Version
 The application logs indicate that the runtime Node.js version in the Cloudron environment is `v18.18.0`.
@@ -19,19 +25,40 @@ The primary change will be in the `Dockerfile`.
     FROM node:18.20.5-bullseye-slim AS builder
     ```
 
-*   **Proposed `builder` stage base image:**
-    Change to use Node.js v18.18.0. We will aim for a `bullseye-slim` variant if available for consistency with the previous base, otherwise a general `18.18.0` tag.
+*   **`builder` stage base image (Reverted):**
+    Revert to the original Node.js version for the builder stage, as changing it did not solve the problem and rebuilding in the final stage is now the primary strategy.
     ```dockerfile
-    FROM node:18.18.0-bullseye-slim AS builder
+    FROM node:18.20.5-bullseye-slim AS builder
     ```
-    *If `node:18.18.0-bullseye-slim` is not available, `node:18.18.0` or `node:18.18-bullseye-slim` would be the next alternatives.*
+
+*   **Proposed `final` stage modification:**
+    Add steps to install build tools, rebuild `bcrypt`, and then remove build tools. This will happen after `node_modules` are copied from the builder.
+    ```dockerfile
+    # Stage 2: Final Cloudron Stage
+    FROM cloudron/base:4.2.0 AS final
+    
+    # ... (existing RUN apt-get install for runtime dependencies) ...
+
+    # Add build tools, rebuild bcrypt, then remove build tools
+    RUN apt-get update && \
+        apt-get install -y --no-install-recommends python3 build-essential g++ && \
+        # Ensure the target directory for npm rebuild exists and has the package.json
+        # bcrypt is a dependency of server-api
+        cd /app/code/backend/dist/packages/server/api && \
+        npm rebuild bcrypt --build-from-source && \
+        apt-get purge -y --auto-remove python3 build-essential g++ && \
+        apt-get clean && \
+        rm -rf /var/lib/apt/lists/*
+
+    # ... (rest of the final stage Dockerfile) ...
+    ```
 
 ## 5. Rationale for Change
 *   Native Node.js addons like `bcrypt` are compiled C++ code that interfaces with Node.js. These addons are sensitive to the Node.js ABI (Application Binary Interface).
 *   The ABI can change between different Node.js versions, even minor ones (e.g., 18.20.x vs. 18.18.x).
 *   When `bcrypt` was compiled in the `builder` stage using Node.js `v18.20.5`, it produced a `.node` file compatible with that version's ABI.
 *   Running this `.node` file with Node.js `v18.18.0` in the `final` stage leads to an ABI mismatch, causing the "cannot open shared object file" error (which often means it *can* find the file, but cannot load it due to incompatibility).
-*   By compiling `bcrypt` (and other native addons) in the `builder` stage using the *exact same Node.js version* (`v18.18.0`) as the runtime environment, we ensure ABI compatibility.
+*   By rebuilding `bcrypt` directly within the `final` stage (which uses `cloudron/base:4.2.0` and its Node.js v18.18.0), we ensure it's compiled against the precise runtime environment, including the correct Node ABI, OS (Ubuntu Jammy), and system libraries (e.g., glibc version). This is more resilient than trying to perfectly match environments between builder and final stages.
 
 ## 6. Impact on Other Files or Configurations
 *   This specific change to address the `bcrypt` error is localized to the `Dockerfile` (specifically the `FROM` instruction of the `builder` stage).
@@ -42,8 +69,9 @@ The primary change will be in the `Dockerfile`.
 No specific lines of code need to be removed beyond modifying the `FROM` instruction in the `Dockerfile`.
 
 ## 8. Robustness of the Solution
-*   Aligning Node.js versions for building and running native addons is a standard, reliable, and generally robust solution to prevent ABI mismatch errors.
-*   This approach ensures that all native dependencies are compiled correctly for the target runtime environment from the outset.
+*   Rebuilding native modules in the final stage is a common and robust pattern for Docker multi-stage builds when native module compatibility is critical and difficult to achieve by solely matching versions in a separate builder stage.
+*   This approach directly addresses compatibility with the runtime environment.
+*   The downside is a slight increase in layer size due to installing/uninstalling build tools, but it's often a necessary trade-off for reliability.
 
 ## 9. Verification Steps (Post-Implementation)
 1.  Modify the `Dockerfile` as planned.
@@ -54,8 +82,8 @@ No specific lines of code need to be removed beyond modifying the `FROM` instruc
 6.  Verify that the ActivePieces backend process starts and remains running (i.e., does not enter a crash loop). This might still be affected by other errors if they are not yet fixed.
 
 ## 10. Potential Considerations and Risks
-*   **Availability of `node:18.18.0-bullseye-slim` Tag:** The exact Docker image tag `node:18.18.0-bullseye-slim` must exist on Docker Hub. If not, a close alternative like `node:18.18.0` (which usually defaults to a recent Debian base) or `node:18.18-bullseye` (if `bullseye-slim` specifically for 18.18.0 isn't tagged) will be used. The key is matching the `18.18.0` version.
-*   **Operating System Base of `cloudron/base:4.2.0`:** The `cloudron/base:4.2.0` image is based on Ubuntu 22.04 (Jammy). The current builder uses `bullseye-slim` (Debian 11). While aligning Node.js versions is the primary fix for `.node` file issues, ideally, the builder's OS should also closely match the final stage's OS for maximum compatibility of system libraries.
-    *   If `node:18.18.0-bullseye-slim` (or similar) resolves the `bcrypt` issue, it's acceptable.
-    *   If issues persist that might be related to system libraries (unlikely for `bcrypt` itself but possible for other native modules), changing the builder base to something like `node:18.18.0-jammy-slim` (if available) would be a further step to consider. For now, aligning the Node version with the existing `bullseye-slim` base is the targeted first step.
-*   **Future Cloudron Base Image Updates:** If Cloudron updates the Node.js version in future releases of `cloudron/base`, the `Dockerfile`'s builder stage might need to be updated again to maintain alignment. This is a standard part of Docker image maintenance.
+*   **Build Tools in Final Stage:** This approach requires temporarily installing build tools (`python3`, `g++`, `build-essential`) in the final image. These should be removed after `npm rebuild` to keep the final image lean.
+*   **Correct `npm rebuild` Context:** The `npm rebuild bcrypt --build-from-source` command must be run in the directory containing the `node_modules` folder where `bcrypt` is located and its `package.json` (or the project's `package.json` that lists `bcrypt` as a dependency). For this project, it's `/app/code/backend/dist/packages/server/api`.
+*   **Impact on Other Native Modules:** If other native modules are causing similar issues, they might also need to be included in the `npm rebuild` command (e.g., `npm rebuild bcrypt some-other-module`) or a general `npm rebuild --build-from-source` could be used, though rebuilding specific modules is safer.
+*   **Build Time:** Rebuilding in the final stage can slightly increase Docker image build time.
+*   **OS Differences (Builder vs. Final):** Reverting the builder to `node:18.20.5-bullseye-slim` while the final stage is `cloudron/base:4.2.0` (Ubuntu Jammy based) means the primary build of non-native parts happens on Debian, and native parts are rebuilt on Ubuntu. This is generally fine. The key is that the *native module compilation for runtime* happens in the runtime environment.

@@ -1,6 +1,6 @@
 # Stage 1: Builder Stage (based on official ActivePieces build environment)
-# Changed to 18.18.0 to match Cloudron base image Node version for bcrypt compatibility
-FROM node:18.18.0-bullseye-slim AS builder
+# Reverted to 18.20.5 as rebuilding bcrypt in final stage is the new strategy
+FROM node:18.20.5-bullseye-slim AS builder
 
 LABEL stage=builder
 
@@ -76,6 +76,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Add build tools, rebuild bcrypt, then remove build tools
+# This is done to ensure bcrypt is compiled against the final stage's Node.js version and system libraries.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 build-essential g++ && \
+    # The bcrypt module is part of the server-api's dependencies.
+    # We need to run npm rebuild in the directory where its node_modules and package.json are located after being copied.
+    # This happens after the COPY --from=builder .../api/node_modules ... line.
+    # However, to ensure the command is placed correctly, we'll do it after copying all backend files,
+    # then cd into the correct directory.
+    # For now, this RUN block is placed after initial runtime deps. The actual rebuild will occur after files are copied.
+    # This is a placeholder for the logic, the actual rebuild will be done after COPY.
+    # The actual rebuild command will be added after the COPY statements for node_modules.
+    # For now, just installing tools. The rebuild will be a separate RUN command later.
+    echo "Build tools installed. bcrypt will be rebuilt after files are copied." && \
+    apt-get clean # Clean now, purge later after rebuild
+
 # Install isolated-vm globally (adjust if official method is different)
 # The official Dockerfile does `cd /usr/src && npm i isolated-vm@5.0.1`
 # This means it's not in the main app's node_modules.
@@ -106,6 +122,15 @@ COPY --from=builder /usr/src/app/dist/packages/engine/ /app/code/backend/dist/pa
 COPY --from=builder /usr/src/app/dist/packages/shared/ /app/code/backend/dist/packages/shared/
 # Copy the node_modules for the backend server api that were installed with --production
 COPY --from=builder /usr/src/app/dist/packages/server/api/node_modules /app/code/backend/dist/packages/server/api/node_modules
+
+# Rebuild bcrypt now that node_modules are in place
+RUN echo "Rebuilding bcrypt in /app/code/backend/dist/packages/server/api..." && \
+    cd /app/code/backend/dist/packages/server/api && \
+    npm rebuild bcrypt --build-from-source && \
+    echo "bcrypt rebuild complete. Purging build tools." && \
+    apt-get purge -y --auto-remove python3 build-essential g++ && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/src/app/dist/packages/react-ui/ /app/code/frontend/
 COPY --from=builder /usr/src/app/LICENSE /app/code/LICENSE
