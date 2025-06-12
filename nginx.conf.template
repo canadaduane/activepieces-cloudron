@@ -5,6 +5,13 @@ http {
 
     server_tokens off;
 
+    # Add these lines for Cloudron compatibility
+    client_body_temp_path /run/client_body;
+    proxy_temp_path /run/proxy_temp;
+    fastcgi_temp_path /run/fastcgi_temp;
+    scgi_temp_path /run/scgi_temp;
+    uwsgi_temp_path /run/uwsgi_temp;
+
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
     add_header X-Content-Type-Options "nosniff" always;
 

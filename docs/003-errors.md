@@ -108,7 +108,16 @@ Here's a breakdown of the issues and potential fixes:
         `cat /run/nginx_app.conf`
     3.  **Check `nginx.conf.template` for stray characters:** Unlikely, but worth a quick visual scan around line 16.
     4.  The most plausible reason is that `CLOUDRON_HTTP_PORT` is not available or empty when `start.sh` executes `envsubst`. However, Cloudron injects these variables.
-*   **Action:** Add debugging to `start.sh` to inspect `NGINX_LISTEN_PORT` and the generated `/run/nginx_app.conf`. The issue is almost certainly that `NGINX_LISTEN_PORT` is not resolving to a simple port number when `envsubst` runs.
+*   **Action (Implemented & Logged):** Debugging lines were added to `start.sh`. The logs from a subsequent run showed:
+    *   `DEBUG: CLOUDRON_HTTP_PORT is ''`
+    *   `DEBUG: NGINX_LISTEN_PORT is ''`
+    *   The generated `/run/nginx_app.conf` contained `listen ;`
+*   **Confirmed Root Cause:** The `CLOUDRON_HTTP_PORT` environment variable is empty within the `start.sh` script's environment. This causes `NGINX_LISTEN_PORT` to be empty, leading to an invalid `listen ;` directive in the Nginx configuration.
+*   **Next Steps for Nginx Error:**
+    1.  **Verify Manifest Deployment:** The user should ensure the `CloudronManifest.json` containing `"httpPort": 8000` is correctly included in the Cloudron build and deployment.
+    2.  **Workaround/Further Diagnosis in `start.sh`:** Modify `start.sh` to use a default value for `NGINX_LISTEN_PORT` if `CLOUDRON_HTTP_PORT` is empty. This will help Nginx start and confirm if other parts of the proxying work.
+        Example: `export NGINX_LISTEN_PORT="${CLOUDRON_HTTP_PORT:-8000}"`
+    *   The fundamental issue of why `CLOUDRON_HTTP_PORT` is not being set by Cloudron despite its presence in the manifest needs to be investigated, potentially with Cloudron support or by checking Cloudron's build/deployment logs for warnings related to the manifest.
 
 ### 6. ActivePieces - bcrypt_lib.node Missing
 *   **Log:** `Error: /app/code/backend/dist/packages/server/api/node_modules/bcrypt/lib/binding/napi-v3/bcrypt_lib.node: cannot open shared object file: No such file or directory`
