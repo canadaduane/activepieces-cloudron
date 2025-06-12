@@ -14,6 +14,14 @@
     "localstorage": {},
     "sendmail": {}
   },
+  "proxyPaths": {
+    "/api": { "targetPort": 3000 },
+    "/socket.io": { "targetPort": 3000, "websocket": true }
+  },
+  "spa": {
+    "path": "/app/code/dist/packages/ui",
+    "index": "index.html"
+  },
   "manifestVersion": 2,
   "website": "https://www.activepieces.com",
   "contactEmail": "support@activepieces.com",
@@ -23,6 +31,5 @@
   ],
   "tagline": "Open Source Business Automation",
   "postInstallMessage": "ActivePieces has been installed. Please create your first admin account on the login page. Refer to ActivePieces documentation for initial setup if needed.",
-  "minBoxVersion": "7.0.0",
-  "nginxConfig": "include /app/pkg/nginx.conf;"
+  "minBoxVersion": "7.0.0"
 }
