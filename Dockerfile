@@ -111,14 +111,16 @@ COPY --from=builder /usr/src/app/LICENSE /app/code/LICENSE
 
 # Copy configuration templates and scripts (these will be created in the project root)
 COPY ./nginx.conf.template /app/code/config/nginx.conf.template
-COPY ./supervisord.conf /app/code/config/supervisord.conf
+# COPY ./supervisord.conf /app/code/config/supervisord.conf # This will be copied directly to /etc/supervisor/conf.d
 COPY ./start.sh /app/code/start.sh
 RUN chmod +x /app/code/start.sh
+
+# Copy supervisord program configuration
+COPY ./supervisord.conf /etc/supervisor/conf.d/activepieces.conf
 
 # Set correct permissions for /app/code
 RUN chown -R root:root /app/code && chmod -R 755 /app/code
 
 # Health check and port are defined in CloudronManifest.json
 # Cloudron's supervisor will manage starting services via start.sh
-
 CMD ["/app/code/start.sh"]

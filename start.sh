@@ -132,10 +132,6 @@ mkdir -p /run/nginx # Ensure /run/nginx directory exists if needed, though /run 
 envsubst '${NGINX_LISTEN_PORT},${AP_BACKEND_INTERNAL_PORT}' < /app/code/config/nginx.conf.template > /run/nginx_app.conf
 echo "Nginx configuration generated at /run/nginx_app.conf"
 
-# --- Prepare Supervisord Configuration ---
-echo "Copying supervisord configuration..."
-cp /app/code/config/supervisord.conf /etc/supervisor/conf.d/activepieces.conf
-
 # --- Start Supervisord ---
 echo "Starting supervisord..."
 exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf -n
