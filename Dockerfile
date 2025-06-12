@@ -1,14 +1,12 @@
-# Stage 1: Builder Stage (based on official ActivePieces build environment)
-# Reverted to 18.20.5 as rebuilding bcrypt in final stage is the new strategy
-FROM node:18.20.5-bullseye-slim AS builder
+# Stage 1: Builder Stage - Now using cloudron/base for consistency
+FROM cloudron/base:4.2.0 AS builder
 
 LABEL stage=builder
 
 # Install build dependencies
-# Use a cache mount for apt to speed up the process
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && \
+# cloudron/base:4.2.0 includes Node.js 18.18.0.
+# We need to ensure other build tools are present.
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         openssh-client \
         python3 \
@@ -19,10 +17,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         procps \
         locales \
         locales-all \
-        libcap-dev && \
-    yarn config set python /usr/bin/python3 && \
-    npm install -g node-gyp && \
-    apt-get clean && \
+        libcap-dev \
+    && npm install -g node-gyp \
+    && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Install specific npm and pnpm versions
@@ -54,12 +51,8 @@ RUN npx nx run-many --target=build --projects=react-ui
 
 # Install backend production dependencies
 # Aligning with official Dockerfile.
+# This will compile bcrypt and other native dependencies using Node 18.18.0 from cloudron/base.
 RUN cd dist/packages/server/api && npm install --production --force
-
-# Rebuild bcrypt
-RUN echo "Rebuilding bcrypt in /app/code/backend/dist/packages/server/api..." && \
-    npm rebuild bcrypt --build-from-source && \
-    echo "bcrypt rebuild complete. Purging build tools."
 
 
 # Stage 2: Final Cloudron Stage
@@ -82,16 +75,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install isolated-vm globally (adjust if official method is different) # The official Dockerfile does `cd /usr/src && npm i isolated-vm@5.0.1` # This means it's not in the main app's node_modules. # We need to replicate its availability. RUN mkdir -p /usr/src/isolated-vm-install && \ cd /usr/src/isolated-vm-install && \ npm i isolated-vm@5.0.1 && \ # Make it findable by Node; this might need adjustment based on how AP requires it. # A common pattern is to ensure /usr/src/isolated-vm-install/node_modules is in NODE_PATH or linked. # For now, we assume AP's code knows how to find it if installed this way. # Or, ensure it's installed in a way that the main app's require() can find it. # The official Dockerfile installs it in /usr/src, which is unusual. # Let's try to mimic that by placing its node_modules there. mkdir -p /usr/src/node_modules && \ mv /usr/src/isolated-vm-install/node_modules/isolated-vm /usr/src/node_modules/isolated-vm && \ rm -rf /usr/src/isolated-vm-install # Create application and configuration directories RUN mkdir -p /app/code/backend /app/code/frontend /app/code/config /app/data /run /tmp # Copy ActivePieces specific assets (e.g., for isolated-vm sandboxing) # Path from official Dockerfile: packages/server/api/src/assets/default.cf COPY --from=builder /usr/src/app/packages/server/api/src/assets/default.cf /usr/local/etc/isolate/default.cf # Copy built artifacts from builder stage COPY --from=builder /usr/src/app/dist/packages/server/ /app/code/backend/dist/packages/server/ COPY --from=builder /usr/src/app/dist/packages/engine/ /app/code/backend/dist/packages/engine/ COPY --from=builder /usr/src/app/dist/packages/shared/ /app/code/backend/dist/packages/shared/
-# Copy the node_modules for the backend server api that were installed with --production
 COPY --from=builder /usr/src/app/dist/packages/server/api /app/code/backend/dist/packages/server/api
-
 COPY --from=builder /usr/src/app/dist/packages/react-ui /app/code/frontend/
 COPY --from=builder /usr/src/app/LICENSE /app/code/LICENSE
 
 # Copy configuration templates and scripts (these will be created in the project root)
 COPY ./nginx.conf.template /app/code/config/nginx.conf.template
-# COPY ./supervisord.conf /app/code/config/supervisord.conf # This will be copied directly to /etc/supervisor/conf.d
 COPY ./start.sh /app/code/start.sh
 RUN chmod +x /app/code/start.sh
 
