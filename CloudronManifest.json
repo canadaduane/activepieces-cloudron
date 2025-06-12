@@ -1,34 +1,30 @@
 {
   "id": "com.activepieces.cloudronapp",
   "title": "ActivePieces",
-  "author": "Cloudron Packaging Team",
+  "author": "ActivePieces Packager",
   "description": "ActivePieces is a no-code business automation tool. Automate your work, integrate your apps, and build custom workflows without writing any code.",
-  "version": "0.63.0",
+  "version": "0.63.0-cloudron1",
+  "upstreamVersion": "0.63.0",
   "healthCheckPath": "/api/v1/flags",
-  "httpPort": 3000,
-  "memoryLimit": 1024,
-  "icon": "icon.png",
+  "httpPort": 8000,
+  "memoryLimit": 1073741824,
+  "icon": "file://icon.png",
   "addons": {
     "postgresql": {},
     "redis": {},
     "localstorage": {},
     "sendmail": {}
   },
-  "proxyPaths": {
-    "/api": { "targetPort": 3000 },
-    "/socket.io": { "targetPort": 3000, "websocket": true }
-  },
-  "spa": {
-    "path": "/app/code/dist/packages/ui",
-    "index": "index.html"
-  },
   "manifestVersion": 2,
   "website": "https://www.activepieces.com",
   "contactEmail": "support@activepieces.com",
+  "documentationUrl": "https://www.activepieces.com/docs",
+  "forumUrl": "https://community.activepieces.com/",
   "mediaLinks": [
     "https://www.activepieces.com/blog",
     "https://github.com/activepieces/activepieces"
   ],
+  "tags": ["automation", "no-code", "workflow", "integration"],
   "tagline": "Open Source Business Automation",
   "postInstallMessage": "ActivePieces has been installed. Please create your first admin account on the login page. Refer to ActivePieces documentation for initial setup if needed.",
   "minBoxVersion": "7.0.0"

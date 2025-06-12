@@ -1,0 +1,68 @@
+events{}
+http {
+    include /etc/nginx/mime.types;
+    client_max_body_size 100m;
+
+    server_tokens off;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    # Log to stdout/stderr for Cloudron
+    access_log /dev/stdout;
+    error_log /dev/stderr warn;
+
+    server {
+        listen ${NGINX_LISTEN_PORT};
+        server_name localhost; # Cloudron handles actual domain mapping.
+
+        root /app/code/frontend;
+        index index.html;
+
+        # Custom 404 page, also serves index.html for SPA routing if file not found directly
+        error_page 404 /index.html;
+
+        location /socket.io {
+            proxy_pass http://127.0.0.1:${AP_BACKEND_INTERNAL_PORT}/socket.io;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "Upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 900s;
+            proxy_send_timeout 900s;
+        }
+
+        # Serve static assets with caching headers
+        # Adjusted to ensure it doesn't conflict with /api or other specific locations
+        location ~* ^/(static/|img/|assets/|.*\.(css|js|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot|otf))$ {
+            root /app/code/frontend;
+            add_header Cache-Control "public, max-age=31536000, immutable";
+            # 'Expires' header is often redundant with Cache-Control max-age and immutable
+        }
+
+        # API proxy
+        location /api/ {
+            proxy_pass http://127.0.0.1:${AP_BACKEND_INTERNAL_PORT}/;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade; # For potential future use, e.g. WebSockets on API paths
+            proxy_set_header Connection "Upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 900s;
+            proxy_send_timeout 900s;
+
+            # SSE specific settings
+            proxy_buffering off;
+            proxy_cache off;
+        }
+
+        # SPA routing for frontend - anything not matched above falls here
+        location / {
+           root /app/code/frontend;
+           try_files $uri $uri/ /index.html?$args;
+        }
+    }
+}

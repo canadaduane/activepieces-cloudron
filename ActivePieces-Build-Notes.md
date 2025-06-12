@@ -7,59 +7,63 @@ This document provides instructions for building, testing, and deploying the Act
 1.  **Cloudron Account**: You need an account on a Cloudron instance with developer mode enabled.
 2.  **Docker**: Docker must be installed and running on your local machine.
 3.  **Cloudron CLI**: Install the Cloudron CLI tool (`cloudron`).
-4.  **Git**: Git must be installed to allow the `Dockerfile` to clone the ActivePieces source code.
-5.  **Icon**: An icon file named `icon.png` (ideally 256x256 or larger, PNG or SVG) must be present in the root of this packaging project (e.g., `activepices-cloudron/icon.png`).
+4.  **ActivePieces Source Code**: The source code for ActivePieces should be present in the `./activepieces_src/` subdirectory of this project. The `./Dockerfile` copies from this location.
+5.  **Icon**: An icon file named `logo.png` (ideally 256x256 or larger, PNG or SVG) must be present in the root of this packaging project. (Note: `CloudronManifest.json` refers to `file://icon.png`, ensure `logo.png` is renamed to `icon.png` or the manifest is updated).
 
 ## Package Files
 
-Ensure the following files are in the `activepices-cloudron` directory:
+Ensure the following files are in the `activepieces-cloudron` project directory:
 
 *   `CloudronManifest.json` (defines the application package)
-*   `Dockerfile` (builds the application image)
-*   `start.sh` (runtime script for the application)
-*   `nginx.conf` (Nginx configuration for Cloudron's reverse proxy)
-*   `icon.png` (application icon)
+*   `Dockerfile` (builds the application image using `./activepieces_src/`)
+*   `start.sh` (runtime script for the application, launches supervisord)
+*   `nginx.conf.template` (Nginx configuration template)
+*   `supervisord.conf` (Supervisord configuration to manage Nginx and ActivePieces app)
+*   `icon.png` (application icon, ensure this matches the manifest)
 *   `ActivePieces-Build-Notes.md` (this file)
+*   `./activepieces_src/` (directory containing the ActivePieces source code)
 
 ## Build Process
 
 1.  **Navigate to Project Directory**:
-    Open your terminal and change to the `activepices-cloudron` directory.
+    Open your terminal and change to the `activepieces-cloudron` directory.
     ```bash
-    cd path/to/activepices-cloudron
+    cd path/to/activepieces-cloudron
     ```
 
-2.  **Login to Docker Registry** (if not using Cloudron's internal registry):
+2.  **Ensure ActivePieces Source**:
+    Make sure the `./activepieces_src/` directory contains the version of ActivePieces you intend to package.
+
+3.  **Login to Docker Registry** (if not using Cloudron's internal registry or a pre-configured one):
     ```bash
     docker login your-registry.example.com
     ```
 
-3.  **Build the Docker Image**:
-    Run the Cloudron build command from within the `activepices-cloudron` directory:
+4.  **Build the Docker Image**:
+    Run the Cloudron build command from within the `activepieces-cloudron` directory:
     ```bash
     cloudron build
     ```
     This command will:
     *   Read `CloudronManifest.json`.
-    *   Build the Docker image using `Dockerfile` (cloning ActivePieces version 0.63.0 by default via the `GIT_TAG` ARG in the Dockerfile).
-    *   Tag and push the image to the appropriate Docker registry.
+    *   Build the Docker image using `Dockerfile`, which uses the content of `./activepieces_src/`.
+    *   Tag and push the image to the appropriate Docker registry (e.g., `yourdockerhubuser/com.activepieces.cloudronapp:0.63.0-cloudron1` based on manifest fields).
 
-    To build a different version, modify the `GIT_TAG` argument in the `Dockerfile` or use a build argument with the Cloudron CLI:
-    ```bash
-    cloudron build --build-arg GIT_TAG=new-version-tag
-    ```
+    To build a specific version of ActivePieces, you must update the contents of the `./activepieces_src/` directory to that version's source code, and update `upstreamVersion` and `version` in `CloudronManifest.json` accordingly before running `cloudron build`.
 
 ## Deployment to Cloudron
 
-1.  **Login to Cloudron** (if not done by `cloudron build`):
+1.  **Login to Cloudron** (if not already done, or if `cloudron build` didn't handle it):
     ```bash
     cloudron login my.yourcloudron.server
     ```
 
 2.  **Install the Application**:
+    Use the image name and tag that `cloudron build` outputs. For example, if your manifest `id` is `com.activepieces.cloudronapp` and `version` is `0.63.0-cloudron1`, and your Docker Hub username (if used) is `youruser`:
     ```bash
-    cloudron install --image com.activepieces.cloudronapp:0.63.0 # Adjust tag if you built a different version
+    cloudron install --image youruser/com.activepieces.cloudronapp:0.63.0-cloudron1
     ```
+    If using Cloudron's local registry (default for `cloudron build` without specifying a repo), the image name might be simpler, like `com.activepieces.cloudronapp:0.63.0-cloudron1`. Pay attention to the output of `cloudron build`.
     The CLI will prompt for a location (e.g., `activepieces.yourcloudron.server`).
 
 ## Testing
@@ -89,17 +93,30 @@ Ensure the following files are in the `activepices-cloudron` directory:
 *   **Backend Entry Point (`start.sh`)**:
     *   Verify the path to the main backend script: `exec /usr/bin/node --enable-source-maps /app/code/dist/packages/server/api/main.js`. This should be correct if the `server-api` package builds as expected.
 
-*   **`httpPort` and `AP_PORT`**: Ensure `AP_PORT` in `start.sh` (default 3000) matches `httpPort` in `CloudronManifest.json`.
+*   **`httpPort` and `AP_PORT`**:
+    *   `CloudronManifest.json:httpPort` (e.g., 8000) is the port Nginx (inside the container) listens on. This is what Cloudron's external proxy connects to.
+    *   `AP_PORT` in `start.sh` (e.g., 3000) is the internal port the ActivePieces Node.js backend listens on.
+    *   Nginx (listening on `httpPort`) proxies requests to the Node.js backend on `AP_PORT`. These two ports should be different.
 
 *   **Email**: Test email sending functionality (password reset, notifications).
+*   **Nginx and Supervisord**: Verify both Nginx and the ActivePieces Node.js app are running correctly via `supervisorctl status` (if available in `cloudron exec`) or by checking logs.
 
 *   **Build Commands in `Dockerfile`**: Confirm `pnpm exec nx run-many --target=build --all --parallel=1` correctly builds all necessary production artifacts for `server-api` and `ui`.
 
 ## Updating the Application
 
 1.  **Update Source Version**:
-    *   In `Dockerfile`, change the default value for the `GIT_TAG` ARG.
-    *   Or, pass the new tag via build argument: `cloudron build --build-arg GIT_TAG=new.version.tag`
-2.  **Manifest Version**: Update the `version` field in `CloudronManifest.json` to match the new ActivePieces version.
-3.  **Rebuild**: `cloudron build` (with new tag/args if needed).
-4.  **Update on Cloudron**: `cloudron update --app <appdomain> --image <new-image-tag-from-build>` (e.g., `com.activepieces.cloudronapp:new.version.tag`).
+    *   Replace the contents of the `./activepieces_src/` directory with the source code of the new ActivePieces version.
+2.  **Manifest Version**:
+    *   Update `upstreamVersion` in `CloudronManifest.json` to the new ActivePieces version (e.g., "0.64.0").
+    *   Update `version` in `CloudronManifest.json` for the package itself (e.g., "0.64.0-cloudron1").
+3.  **Rebuild**:
+    ```bash
+    cloudron build
+    ```
+4.  **Update on Cloudron**:
+    Use the new image tag output by `cloudron build`.
+    ```bash
+    cloudron update --app <app.domain> --image <yourdockeruser/com.activepieces.cloudronapp:new-package-version>
+    ```
+    Example: `cloudron update --app activepieces.yourcloudron.server --image yourdockeruser/com.activepieces.cloudronapp:0.64.0-cloudron1`
