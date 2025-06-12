@@ -59,8 +59,8 @@ fi
 export AP_JWT_SECRET=$(cat "${JWT_SECRET_FILE}")
 
 if [ ! -f "${ENCRYPTION_KEY_FILE}" ]; then
-    echo "Generating new AP_ENCRYPTION_KEY..."
-    openssl rand -hex 32 > "${ENCRYPTION_KEY_FILE}"
+    echo "Generating new AP_ENCRYPTION_KEY (32 hex chars for 16 bytes)..."
+    openssl rand -hex 16 > "${ENCRYPTION_KEY_FILE}"
     chown cloudron:cloudron "${ENCRYPTION_KEY_FILE}"
     chmod 600 "${ENCRYPTION_KEY_FILE}"
 fi
