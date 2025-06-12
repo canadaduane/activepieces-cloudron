@@ -1,4 +1,8 @@
 events{}
+
+# Log to stdout/stderr for Cloudron (main context)
+error_log /dev/stderr warn;
+
 http {
     include /etc/nginx/mime.types;
     client_max_body_size 100m;
@@ -17,7 +21,6 @@ http {
 
     # Log to stdout/stderr for Cloudron
     access_log /dev/stdout;
-    error_log /dev/stderr warn;
 
     server {
         listen ${NGINX_LISTEN_PORT};
