@@ -97,32 +97,6 @@ export AP_FLOW_TIMEOUT_SECONDS="600"
 # Files (Local storage for 'file' piece)
 export AP_LOCAL_STORE_PATH="/app/data/files"
 
-# --- Database Migrations ---
-# Path to the built backend where main.js and its node_modules (including typeorm) are.
-# Assuming our Dockerfile copies built backend to /app/code/backend/
-# and node_modules for server-api are at /app/code/backend/dist/packages/server/api/node_modules
-# and main.js is at /app/code/backend/dist/packages/server/api/main.js
-# The TypeORM CLI needs to be run from a context where it can find the data source and its dependencies.
-# The data source itself is likely compiled JS.
-# Original path: /app/code/dist/packages/server/api/app/database/database-connection.js
-# New base for backend: /app/code/backend/
-COMPILED_DATA_SOURCE_PATH="/app/code/backend/dist/packages/server/api/app/database/database-connection.js"
-BACKEND_API_DIR="/app/code/backend/dist/packages/server/api"
-
-echo "Running database migrations..."
-if [ -f "${BACKEND_API_DIR}/node_modules/typeorm/cli.js" ] && [ -f "${COMPILED_DATA_SOURCE_PATH}" ]; then
-    echo "Found TypeORM CLI and compiled data source."
-    # Run as cloudron user, from the directory containing node_modules for the backend API
-    # This ensures TypeORM CLI can find its dependencies and the data source.
-    gosu cloudron:cloudron node "${BACKEND_API_DIR}/node_modules/typeorm/cli.js" migration:run -d "${COMPILED_DATA_SOURCE_PATH}"
-    echo "Database migrations command executed."
-else
-    echo "ERROR: TypeORM CLI or compiled data source for migrations not found."
-    echo "Searched for CLI at: ${BACKEND_API_DIR}/node_modules/typeorm/cli.js"
-    echo "Searched for DataSource at: ${COMPILED_DATA_SOURCE_PATH}"
-    # Consider exiting if migrations are critical: exit 1
-fi
-
 # --- Prepare Nginx Configuration ---
 export NGINX_LISTEN_PORT="${CLOUDRON_HTTP_PORT}" # Cloudron always sets this
 export AP_BACKEND_INTERNAL_PORT="${AP_PORT}" # AP_PORT is already set to 3000 above
