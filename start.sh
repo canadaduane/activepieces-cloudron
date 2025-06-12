@@ -128,9 +128,9 @@ export NGINX_LISTEN_PORT="${CLOUDRON_HTTP_PORT}" # Cloudron always sets this
 export AP_BACKEND_INTERNAL_PORT="${AP_PORT}" # AP_PORT is already set to 3000 above
 
 echo "Templating Nginx configuration for Nginx port ${NGINX_LISTEN_PORT} and backend port ${AP_BACKEND_INTERNAL_PORT}..."
-mkdir -p /etc/nginx/conf.d # Ensure directory exists for app.conf
-envsubst '${NGINX_LISTEN_PORT},${AP_BACKEND_INTERNAL_PORT}' < /app/code/config/nginx.conf.template > /etc/nginx/conf.d/app.conf
-echo "Nginx configuration generated at /etc/nginx/conf.d/app.conf"
+mkdir -p /run/nginx # Ensure /run/nginx directory exists if needed, though /run itself is writable
+envsubst '${NGINX_LISTEN_PORT},${AP_BACKEND_INTERNAL_PORT}' < /app/code/config/nginx.conf.template > /run/nginx_app.conf
+echo "Nginx configuration generated at /run/nginx_app.conf"
 
 # --- Prepare Supervisord Configuration ---
 echo "Copying supervisord configuration..."
